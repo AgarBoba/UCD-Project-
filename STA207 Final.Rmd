@@ -1,0 +1,488 @@
+---
+title: "STA207 STAR Final Report"
+author: "Shutong Gu"
+date: "3/17/2024"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(fig.pos = 'H',echo=F,message=F,waring=F)
+```
+
+```{r}
+library(foreign)
+library(car)
+library(lmtest)
+library(lme4)
+library(ggplot2)
+library(dplyr)
+library(emmeans)
+```
+
+
+```{r}
+knitr::include_graphics("1.JPEG")
+```
+
+# Dataset Introduction 
+
+The STAR ( Student/Teacher Achievement Ratio) was a large-scale design-based statistical research project held in Tennessee State beginning in 1985. This project aimed to study the effect of different class types *(small, regular, regular with aide)* on students’ academic achievement. The study's primary data file on student-level information contains comprehensive records of 11,601 students from kindergarten through 3rd grade. This study incorporates demographic information, identifiers for schools and classes, backgrounds of schools and teachers, the experimental condition (type of class), and a range of academic measurements. These measurements include scores from norm-referenced and criterion-referenced achievement tests, alongside scores for motivation and self-concept. 
+
+For this data analysis project, we are specifically interested in the relationship between class types and the grade 1 students’ scaled math scores. Moreover, we want to know which class type may positively affect students' scores on the largest scale.
+
+# Backgroud & Study Design 
+The detailed data for this study was published on *Harvard Dataverse* website. And the data package contains several data set including the data for schools and students. The data that will be used in this study is named as "STAR_Students". 
+
+According to the summary report of the STAR project, the design is based on volunteering. Each school had at least one class for each class type, small (13-17 students), regular (22-25 students), and regular with a full-time aide (22-25 students). A total of 79 schools across different regions *(urban [8], suburban [16], inner city [17], and rural [38])* in Tennessee participated in the study. Researchers also balanced the number of schools participating from each region to minimize the bias in the study. Including a wide range of schools from different settings *(urban, suburban, rural, inner-city)* and collecting detailed demographic data allowed the study to explore the effects of class size across various contexts and populations. 
+
+Beyond that, researchers ensured that all participating teachers were certified for the grade levels they taught, providing a consistent standard of instruction across the various class types and settings. The study employed a randomized assignment not only for students but also for teachers to the different class sizes *(small, regular, and regular with aide)*. The usage of random assignment for both students and teachers to various class types significantly reduced selection bias and ensuring that any observed differences in student achievement can be more confidently attributed to the intervention of class size, rather than pre-existing differences among participants.
+
+While the design of STAR project tried to minimized the bias during sampling and group setting, it did have obvious shortage due to the purpose of design itself. 
+First of all, the selection standard for schools requires a minimum number of enrolled students. And those schools, like community schools and private schools, will not get chance to participate into the study. And it may cause the schools from a certain region being under sampled. For those communities with a scarce population, the size of school may be smaller than the project’s requirement, and the sparse population may indicate the gated communities (wealthy neighborhood) or rural regions. This would lead to bias  in the samples studied. 
+
+Secondly, as mentioned in the report, the students joined the study may demonstrate a different behavior than the normal population since they know they are in a special project. And this effect is known as Hawthorne Effect. Even though the researchers tried to compare the performance of students in the project with those outside the study, we cannot confidently say there is no influence on the participants of study by the design itself since the report did not directly list the data of comparison. 
+
+Thirdly, the original design of the study aimed for students to remain in their assigned class type throughout the project (K-3) to assess the long-term effects of class size consistently. However, adjustments were made after kindergarten, allowing for some reassignment of students due to discipline issues or parent requests, particularly between regular and regular with aide classes. Even more, the research allowed students to join during after the kindergarten age. From the data, there are 11601 students attended the study while only 4515 students had grade records for both kindergarten and grade 1. This drop in numbers raises concerns about unexpected bias, making it harder to analyze long-term effects accurately. The introduction of new students and the moving of existing students between different class types adds further complexity, potentially affecting the clarity of the study's findings on how class size impacts student learning. This variability, especially during a key phase in students' development, complicates understanding the true influence of class size.
+
+
+```{r, warning=FALSE}
+students <- read.spss("~/Desktop/STAR/dataverse_files/STAR_Students.sav")
+comparison_students<-read.spss("~/Desktop/STAR/dataverse_files/Comparison_Students.sav")
+schools <- read.spss("~/Desktop/STAR/dataverse_files/STAR_K-3_Schools.sav")
+```
+
+```{r}
+students <- as.data.frame(students)
+comparison_students <- as.data.frame(comparison_students)
+schools <- as.data.frame(schools)
+```
+
+```{r}
+#nrow(students[students$FLAGSGK=="YES" & students$FLAGSG1=="YES",])
+```
+
+# Description of Variables 
+
+Since the original dataset has 379 variables including the information for different grade levels, and we only interested in the grade 1 math scores, several variables related to the topic were selected.
+
+1. *FLAGSG1* (YES/NO): The indicator variable showed whether a student attened the project in Grade 1. 
+2. *FLAGG1* (YES/NO):  The indicator variable showed whether a student has record for scores in Grade 1. 
+
+We may use the variables above to filter the students that attend project in grade 1  and also have valid records for their scaled math scores. After filtering, we got 6684 students left. 
+
+3. *G1SURBAN* (urban/suburban/rural/inner-city): Demongraphic information for Grade 1 schools. 
+4. *G1TCHID*: Teachers’ ID for each students. We may use this variable to combine information for each class, the expected unit for this analysis. 
+5. *G1THIGHD*: Teachers’ degree. May indicate teachers’ knowledge and teaching quality.
+6. *G1TCAREER*: Teachers’ title in the career. 	May also relate to the teaching quality.
+7. *G1TYEAERS*: The years of experience on teaching for each teachers. May also relate to the teaching quality. 
+
+Given that the dataset was initially gathered with a focus on individual student, and our objective is to minimize variability stemming from differences among students by aggregating information into class level (use classes as unit), our attention shifts to variables associated with schools and teachers, as these are more relevant to our current analytical goals. This approach will allow us to concentrate on the broader educational environment, rather than individual student characteristics. 
+
+As such, the students information are grouped by their teachers unique ID, and the mean scores for each class are calculated and stored.The mean score is used here for the analysis. The reason for mean score would be the normal assumption for students score in one class. It would provide an unbiased description for the students’ score in one class. The median statistic would be tested in the later part for validating the conclusion since if the median and mean return the same statistics or conclusion, it may indicate a symmetric distribution for student grades within a class. 
+
+
+```{r}
+students_G1 <- students[students$flagg1 == "YES",]
+```
+
+```{r}
+
+?na.omit()
+students_G1_sel <- students_G1 %>% 
+  select(stdntid, g1classtype, g1schid, g1surban, g1tchid, g1thighdegree, g1tcareer, g1tyears, g1tmathss)
+students_G1_sel <- na.omit(students_G1_sel)
+#str(students_G1_sel)
+```
+### More Detailed Data Visualization: 
+
+Then we come to a more detailed discussion for the variables mentioned above. We want to visualize the relationship between these variables and classes' average math grades. 
+
+#### (1) Class Types 
+Since our ultimate research question is about the class types' effect on students' grade, we can first visualize the average scores based on three class types. 
+
+```{r}
+ggplot(students_G1_sel, aes(x = g1classtype, y = g1tmathss, fill = g1classtype)) + 
+  geom_boxplot() + 
+  theme_minimal() +
+  labs(title = "Box Plot of Math Grade by Class Type")
+#mean(students_G1_sel[students_G1_sel$g1classtype == "REGULAR + AIDE CLASS",9])
+``` 
+
+From the graph, we can observe that the small class has a relatively higher average scores (538.6) compared to other two class types (Regular:525.7; Regular+aide:529.6). 
+
+#### (2) School Locations
+```{r}
+school_avg <- students_G1_sel %>% 
+  select(g1tmathss,g1classtype,g1schid,g1surban) %>%
+  group_by(g1schid)%>%
+  summarise(average_math_score = mean(g1tmathss, na.rm = TRUE),
+            school_type = first(g1surban))
+```
+
+```{r}
+#table(school_avg$school_type)
+#table(teachers$teacher_career, teachers$school_location)
+#table(teachers[teachers$teacher_career=="PROBATION", 'school_location'])/table(teachers[, 'school_location'])
+```
+
+
+```{r}
+school_avg$school_type <- as.factor(school_avg$school_type)
+ggplot(school_avg,aes(x=reorder(g1schid, average_math_score),y=average_math_score,color=school_type))+
+  geom_point()+
+  theme_minimal() +
+  labs(title = "Average Math Scores by School",
+       x = "School ID",
+       y = "Average Math Score",
+       color = "School Location") +
+  scale_color_brewer(palette = "Set1")+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+
+```
+```{r}
+ggplot(school_avg, aes(x = school_type, y = average_math_score, fill = school_type)) +
+  geom_boxplot() +
+  theme_minimal() +
+  labs(title = "Distribution of Average Math Scores by School Type",
+       x = "School Type",
+       y = "Average Math Score") +
+  scale_fill_brewer(palette = "Set1") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+#mean(students_G1_sel[students_G1_sel$g1surban == "RURAL",9])
+``` 
+
+From the graphs above, we can observe a clear grade difference among different schools. Especially for those in the inner city region, the average grade is significantly lower than those from other regions. *INNER CITY:509.4, URBAN:533.1, SUBURBAN:532.9, RURAL:538*. We then keep going to investigate the potential reasons behind this huge grade gap. 
+
+
+1. We first look at the teachers' background for the INNER CITY schools and compared it with other three regions. We found that the ratio of probation teachers in INNER CITY region is significantly higher than other three. *INNER CITY:20.3%, SUBURBAN: 11.5%, RURAL: 5.6%, URBAN: 0%*.
+```{r}
+#table(teachers[teachers$teacher_career=="PROBATION", 'school_location'])/table(teachers[, 'school_location'])
+``` 
+
+2. We then try to investigate the poverty situation in different regions. The free-lunch variable (*g1freelunch*) can be used as an indicator for poverty level in one region. The ratio for the students who get free lunch in the INNER CITY region is much higher than the other three regions. *INNER CITY:90.24%, SUBURBAN: 33.93%, RURAL: 40.5%, URBAN: 48.27%*. 
+```{r}
+#table(students_G1[students_G1$g1freelunch == "FREE LUNCH", "g1surban"])/table(students_G1[, "g1surban"])
+``` 
+
+3. We also want to see whether there exist any difference for the average class size among four regions. And we don't see any significant difference on the average class size for these regions. *INNER CITY:20.4, SUBURBAN: 21.2, RURAL: 21.02, URBAN: 21.05*. This factor would indicate the balance design of the STAR project.  
+```{r}
+#mean(students_G1[students_G1$g1surban == "INNER CITY", "g1classsize"])
+#mean(students_G1[students_G1$g1surban == "URBAN", "g1classsize"])
+#mean(students_G1[students_G1$g1surban == "SUBURBAN", "g1classsize"])
+#mean(students_G1[students_G1$g1surban == "RURAL", "g1classsize"])
+``` 
+
+As such, the lower average grades in inner-city schools compared to urban, suburban, and rural areas can be attributed to factors like higher poverty levels, fewer educational resources (lower teacher quality). Other possible factors would be safety concerns, reduced parental involvement and so on. These challenges contribute to the academic performance gap observed across different school regions, especially between the INNER CITY region and others. 
+
+#### (3) Teacher Quality
+```{r}
+teachers <- students_G1_sel %>%
+  select(g1tmathss,g1classtype,g1tchid,g1thighdegree,g1tcareer,g1tyears,g1schid,g1surban)%>%
+  group_by(g1tchid)%>%
+  summarise(class_math_avg = mean(g1tmathss, na.rm = TRUE),
+            class_type = first(g1classtype),
+            teacher_degree = first(g1thighdegree),
+            teacher_years = first(g1tyears),
+            teacher_career = first(g1tcareer),
+            school_id = first(g1schid),
+            school_location = first(g1surban))
+``` 
+
+Besides the effect of school locations, we are also interested in the effect of teachers. We have already observed the unequal distribution for probation teachers among different regions. Now we would try to test whether the teaching quality of different types of teachers are different. 
+
+1. We first look at the teachers' degree and see how does that variable affects the average scores. By looking at the plot below, we can observe a slight difference between the students' average math score under the instruction of bachelor teachers and that under master teachers. *Bachelor: 528.9, Master:533.3*. Since the number of obs for other two types of degree is very low, we just ignore that two. At this stage, we cannot conclude whether the degree of teachers has a significant influence on students' math scores. But we can put this variable into the models we will build in the next stage. 
+
+```{r}
+ggplot(teachers, aes(x = teacher_degree, y = class_math_avg, fill = teacher_degree)) +
+  geom_boxplot() +
+  theme_minimal() +
+  labs(title = "Distribution of Average Math Scores by School Type",
+       x = " Teacher Degree",
+       y = "Average Math Score") +
+  scale_fill_brewer(palette = "Set1") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+
+#mean(students_G1[students_G1$g1thighdegree == "MASTERS", "g1tmathss"], na.rm=TRUE)
+``` 
+
+2. Then, we come to investigate the relationship between teachers' experience (years of education) and class average grades. According to the graph below, we can tell there is no significant variance among the classes under the instruction of teachers with various years of experience. 
+
+```{r}
+ggplot(teachers, aes(x = teacher_years, y = class_math_avg, color = school_location)) +
+  geom_point(color=7) +
+  theme_minimal() +
+  labs(title = "Distribution of Average Math Scores VS. Teacher Experience",
+       x = " Teacher Years of Experience",
+       y = "Average Math Score") +
+  scale_fill_brewer(palette = "Set1") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+``` 
+
+3. Finally, we take a look at the effect of different teacher career titles. The mean scores for these 6 types: *No Title: 527.03, APPRENTICE: 528.81, PROBATION: 520.43, L1: 533.46, L2: 529.81, L3: 544.59*. As we can see from the graph, the mean grades for the classes under the instruction of Probation teachers are significantly lower than others. Going back to the previous analysis about the school locations, the effect of probation teachers has been proven here. 
+
+
+```{r}
+ggplot(teachers, aes(x = teacher_career, y = class_math_avg, fill = teacher_career)) +
+  geom_boxplot() +
+# stat_summary(fun = mean, geom = "point", shape = 20, size = 3, color = "red")+
+#  stat_summary(fun = mean, geom = "text", aes(label = round(..y.., 2), group = teacher_career),vjust = -1.5, color = "blue")+
+  theme_minimal() +
+  labs(title = "Distribution of Average Math Scores by Teacher's Career Title",
+       x = " Teacher Degree",
+       y = "Average Math Score") +
+  scale_fill_brewer(palette = "Set1") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+``` 
+
+After a serious detailed descriptive analysis for various variables of interest, we want to add following variables into the modeling part: 
+
+* School Locations 
+
+* Teachers Career Title 
+
+* Teachers Degree 
+
+* Class Types 
+
+
+# Modeling 
+
+### Rethinking about the initial analysis 
+
+In the initial analysis, the model incorporated only two variables—school ID and class types—using a two-way ANOVA approach. This method might be too simplistic, as it risks overlooking the impact of additional variables that could explain more variance. Particularly, since the schools were selected from a diverse population, the two-way ANOVA framework may not adequately account for the variability inherent in the broader population. A mixed-effects model, which allows for the inclusion of both fixed effects (such as class types) and random effects (to capture variations among schools), would likely provide a more nuanced understanding of the data by acknowledging the complex structure of the educational settings under study.
+Above all, we can build a mixed effect model, taking school locations and teachers' career level into fixed effect, also take class types as main fixed effect, also take each school as random effect: 
+
+$$
+Model1: Y_{ij} = \beta_0 + \beta_1 \text{ClassType}_{ij} + \beta_2 \text{SchoolLocation}_{i} + \beta_3 \text{TeacherCareer}_{ij} + u_{i} + \epsilon_{ij}
+$$
+
+Where:
+
+- $Y_{ij}$ denotes the class mean math score for the $i$th school, $j$th teacher's class.
+- $\beta_0$ represents the average class mean math score when all predictors are at their reference levels.
+- $\beta_1$ to $\beta_3$ are the coefficients for the fixed effects: class type, school location, teacher career stage, respectively.
+- $u_{i}$ captures the random effect for the $i$th school, acknowledging the inherent variability in math scores across different schools, assumed to be normally distributed.
+- $\epsilon_{ij}$ is the residual error term, assumed to be normally distributed.
+
+##### Model Assumptions
+
+The key assumptions of this model include:
+
+1. **Linearity**: The relationship between the predictors and the class mean math score is linear.
+2. **Normality**: The residuals and the random effects are normally distributed.
+3. **Independence**: While observations within the same school may be correlated (accounted for by the random effect), observations from different schools are independent.
+4. **Homoscedasticity**: The variance of residuals is constant across levels of the independent variables. 
+
+
+This model not only addresses the project's focus on class size effects but also enriches the analysis by considering additional factors that contribute to the educational environment, thereby providing a more comprehensive picture of the influences on student math achievement. Then fit the model using the data set we filtered above, and we call it *model1*. 
+
+##### *Model1 Details:*
+```{r}
+model1 <- lmer(class_math_avg ~ class_type + school_location + teacher_career + (1 | school_id) , data = teachers)
+summary(model1)
+Anova(model1, Type="II")
+``` 
+
+By checking the ANOVA table with Type II SSE, we observe that the teacher_career may not be significant to the variance in the students math scores overall. And the class types, the factor of interest, school locations are significant related to the variance of students' scores. As such, in the following steps, we are going to compare this very first step model with other potential models.
+
+##### Comparasion with a simplified Model: 
+We then propose a simplified version of the model1 by removing fixed effect variables that are not the interest of the study goal. 
+$$
+Model2: Y_{ij} = \beta_0 + \beta_1 \text{ClassType}_{ij} + u_{i} + \epsilon_{ij}
+$$ 
+Where: 
+
+- $Y_{ij}$ denotes the class mean math score for the $i$th school, $j$th teacher's class. 
+- $\beta_0$ represents the average class mean math score when all predictors are at their reference levels. 
+- $\beta_1$ is the coefficients for the fixed effects: class types. 
+- $u_{i}$ captures the random effect for the $i$th school, acknowledging the inherent variability in math scores across different schools, assumed to be normally distributed. 
+- $\epsilon_{ij}$ is the residual error term, assumed to be normally distributed. 
+
+```{r}
+model2 <- lmer(class_math_avg ~ class_type +  (1 | school_id) , data = teachers)
+summary(model2)
+``` 
+Then we check the model summary and using a Likelihood Ratio test to see if Model1 and Model2 have significant difference. 
+
+
+- **Null Hypothesis (H0)**: $\beta_2 = \beta_3 = 0$ 
+
+The simpler model (`model2`) adequately explains the data, and the additional parameters in the more complex model (`model1`) do not significantly improve the model's fit.
+
+- **Alternative Hypothesis (H1)**:
+At least one of $\beta_2$ and $\beta_3$ is unequal to $0$. 
+
+The more complex model (`model1`) provides a significantly better fit to the data than the simpler model (`model2`). \
+ 
+###### *Test Summary:* 
+
+```{r}
+anova(model1,model2)
+``` 
+Basing on the test result, the p-val is significantly smaller than $\alpha = 0.05$. So we can conclude that at least one of $\beta_2$ and $\beta_3$ is unequal to $0$ in model1. And Model 1 has a better ability explaining the variance of students scores.  
+
+##### Removing Teacher's career: 
+In the summary of the model1, we find the teacher's career level is not significantly contribute to the variance of the scores. As such, we remove this factor from Model1 and get Model3: 
+
+$$
+Model3: Y_{ij} = \beta_0 + \beta_1 \text{ClassType}_{ij} + \beta_2 \text{SchoolLocation}_{i} + u_{i} + \epsilon_{ij}
+$$ 
+
+##### *Model3 Summary:*
+```{r}
+model3 <- lmer(class_math_avg ~ class_type + school_location  + (1 | school_id) , data = teachers)
+summary(model3)
+#AIC(model3)
+Anova(model3, type = "II")
+```
+
+Then we use the same Likelihood Ratio Test to see if model1 and model3 are significantly different. The test statistic is list: 
+
+```{r}
+anova(model1,model3)
+``` 
+Since the P-value is not significantly small, we can conclude model1 and model3 have no significant ability variance in explaining the variance of students' grades. In this way, we will prefer to use model3 since it is simpler. 
+
+In the following steps, we will check the details of model3. 
+
+#### Effect of Class Type Levels 
+
+Based on *Model3*, we can use a pair-wise comparison test to see if the three types of class have different effect on explaining students' score variance. 
+We examine three primary comparisons, each with its own null hypothesis:
+
+1. **Small Class vs. Regular Class**:  
+   $H_0$: The mean achievement score for small classes is equal to that of regular classes.
+   
+2. **Small Class vs. Regular Class with an Aide**:  
+   $H_0$: The mean achievement score for small classes is equal to that of regular classes with an aide.
+   
+3. **Regular Class vs. Regular Class with an Aide**:  
+   $H_0$: The mean achievement score for regular classes is equal to that of regular classes with an aide.
+
+```{r}
+emm_results <- emmeans(model3, specs = "class_type")
+pairs_emm <- pairs(emm_results, adjust = "tukey")
+print(pairs_emm)
+plot(pairs_emm)
+``` 
+
+From the plot and the test results above, we can conclude that the difference between the grades from small classes and those from other two classes are significant higher than 0. And it indicates that the average grades for small classes are higher than the grades from other two types of classes. The finding is within our expectation since small class size usually means teachers can put more attention on each students, and students may put more attention on the classes. We can group students record basing on the class types and analysis the possible reasons behind. 
+
+(1) We can first check the absent/present ratio for different class types. We find there is no significant difference for the absent ratio (absent days/ present days) among three class types.(*SMALLL: 5.4%, REGULAR: 5.5%, REGULAR + AIDE: 5.6%*) 
+
+```{r}
+students_G1_class_absent = students_G1 %>%
+  select(g1absent,g1present,g1classtype)
+
+#table(students_G1_class$g1classtype)
+
+#students_G1_class$ratio = students_G1_class$g1absent/students_G1_class$g1present
+#mean(students_G1_class[students_G1_class$g1classtype == "SMALL CLASS", "ratio"], na.rm=TRUE)
+#mean(students_G1_class[students_G1_class$g1classtype == "REGULAR CLASS", "ratio"], na.rm=TRUE)
+#mean(students_G1_class[students_G1_class$g1classtype == "REGULAR + AIDE CLASS", "ratio"], na.rm=TRUE)
+``` 
+
+(2) Then we can check if the average students quality in Smaller classes is higher by checking the variable *G1PROMOT* which indicates whether a students should be promoted to grade 2 from grade 1. We found the percent of students who are qualified to grade 2 in SMALL CLASS is the highest among three. And it may indicate the teaching quality of a small class type is better than the other two.(*SMALLL: 92.4%, REGULAR: 87.8%, REGULAR + AIDE: 90%*)
+
+```{r}
+#students_G1_class_promote = students_G1 %>%
+#  select(g1promote,g1classtype)
+#list_promote <- table(students_G1_class_promote$g1promote,students_G1_class_promote$g1classtype)
+#list_promote[1,] /(list_promote[1,] + list_promote[2,])
+```
+
+(3) Finally, there is another variable G1SPECIN which indicates whether a student need special instruction from teachers. These students may have trouble studying like normal students, and we want to check the ratio for this type of students in three different classes. From the data, we find the SMALL CLASS does have less percent of students who need special instruction. And it might be a reason why the general grades for a small class is higher than the others.(*SMALLL: 15.2%, REGULAR: 17.6%, REGULAR + AIDE: 17.8%*)
+```{r}
+#students_G1_class_promote = students_G1 %>%
+#  select(g1specin,g1classtype)
+#list_promote <- table(students_G1_class_promote$g1specin,students_G1_class_promote$g1classtype)
+#list_promote[1,] /(list_promote[1,] + list_promote[2,])
+``` 
+
+In a nutshell, the model3 indicates that the school locations and class types are significant to the interpretation about the variance in classes' grades. Compared to the initial analysis during the data description, we see the teachers career level is actually not quite significant for the variance of students grade. One step further, from the model3, we find out the significant difference between the grades of small classes and those from other two types. And after a round of detailed research for the small class, we find several facts including the ratio of special students and the qualified rate (promotion ration) may contribute to the higher average scores in small classes.
+
+# Sensitive Analysis: 
+
+To check the robustness of the model3, we are now going to check if the model factors are significant by reducing factors from model3: 
+
+(1) Removing Random Effect: 
+
+By removing the random effect (school_id), we observe an significant change in the model3. The LRT states that by removing the random effect, the model's ability to interpret the score variance would be significantly influenced. 
+
+```{r}
+model_reduced_randomeffect <- lm(class_math_avg ~ class_type + school_location, data = teachers)
+anova(model3, model_reduced_randomeffect)
+``` 
+
+(2) Replace Random Effect with fixed effect: 
+
+We can see by switching to a fixed effect model, the AIC increases a lot. In this way, by including a random effect, the model 3 not only performs better but also take care about the general background of sampling method (schools are from a larger population).
+
+```{r}
+model_fixed <- lm(class_math_avg ~ class_type + school_location  + school_id , data = teachers)
+AIC(model3, model_fixed)
+``` 
+
+
+(3) Using Median instead of Mean to describe Classes data: 
+By replacing the method of class data summary, we do not observe a significant difference in our conclusion above. Using median as the class statistics and compare the result with that under a mean statistics, we can show the scores distribution within one class is symmetric, no significant skewness is observed. This fact validifies the conclusion we get from Model 3 using a mean as classes statistic. 
+
+### Model Diagnostic 
+
+The key assumptions for linear mixed models include linearity, normality, independence, and homoscedasticity. Our approach to verifying these assumptions involves graphical analysis and statistical tests:
+
+(1)  The residuals of the model should be normally distributed. This assumption was checked using a Normal Q-Q Plot, where points closely following the reference line indicate normality. Our analysis showed residuals broadly following the line, suggesting the residuals' distribution does not deviate significantly from normality.
+
+```{r}
+res <- residuals(model3)
+qqnorm(res)
+qqline(res, col = "red")
+```
+
+(2) The variance of residuals should be constant across levels of the independent variable. Residual plots, which plot residuals against fitted values, were used to check for constant variance. Our analysis indicates a fairly uniform spread of residuals across the range of fitted values, suggesting homoscedasticity.
+
+```{r}
+plot(model3)
+```
+
+(3) By observation of the residual plot, we can also conclude that there is no significant trend for the fitted values and the residuals. It indicates the samples (classes) are in general independent from each other and the linear model is enough to fit the data. Also, since the variables we considered in the model3 are all category data, except for the random effect, it would be unnecessary to attempt the quadratic relationship in the model. 
+
+# Conclusion
+
+The study found that smaller class sizes significantly boost students' math scores compared to larger ones or those with teaching aids. This supports the idea that a more personalized learning environment, with better student-teacher interaction, can improve educational outcomes. It suggests that reducing class sizes could be an effective policy for enhancing education. The research also discovered that the location of schools affects student performance, with urban and suburban students generally doing better than those in inner-city or rural areas. This difference indicates the influence of broader societal and economic factors on education, pointing to the necessity for targeted efforts to bridge these gaps. Interestingly, the impact of teacher qualifications on student success was negligible, hinting that other aspects like teaching methods and teacher-student relationships might be more important. Overall, the research highlights the importance of small class sizes and the role of school location in student achievement, offering insights for developing effective educational strategies that consider these factors. It calls for a nuanced approach to educational policy that addresses the diverse needs of students across different settings.
+
+### Discussion
+
+While the researchers in this project have done a good randomization and sample balancing works, there are still several considerations and limitations should be acknowledged:
+
+(1) *Teacher Qualifications:* The finding that teacher qualifications did not significantly impact student achievement is intriguing but raises questions about the variables used to represent qualifications and whether they fully capture the qualities that influence teaching effectiveness. Further investigation into qualitative aspects of teaching, such as instructional methods, teacher-student rapport, and classroom management skills, could provide a more nuanced understanding of teacher impact. 
+
+(2) *Socioeconomic Factors:* While the study accounts for school locations, it may benefit from a more detailed analysis of socioeconomic factors and their direct impact on student achievement. Variables such as family income, parental education levels, and access to educational resources could offer deeper insights into the disparities observed across different school locations.
+
+(3) *Comparative Studies:* Data from similar studies in different geographical locations or educational systems could offer comparative insights, helping to validate the findings from the STAR project and explore their universality. 
+
+
+# Code Appendix
+```{r ref.label=knitr::all_labels(), echo=TRUE, eval=FALSE}
+
+```
+
+# Acknowlegement 
+
+The data analysis part about pairwise comparison for model3 is originated from Chatgpt:
+
+```{r}
+knitr::include_graphics("4.PNG")
+knitr::include_graphics("3.PNG")
+knitr::include_graphics("2.PNG")
+```
+
+
+
+```{r}
+sessionInfo()
+```
+
